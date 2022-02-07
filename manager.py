@@ -12,7 +12,9 @@ class Plugin():
         self.repository = plugin_data['repository']
         self.branch = plugin_data['branch']
         self.folder_name = plugin_data['folder']
-
+        self.submodule = False
+        if 'submodule' in plugin_data:
+            self.folder_name  = plugin_data['submodule']
         self.plugin_folder = str(plugins_folder + self.folder_name)
 
     def is_installed(self):
@@ -88,8 +90,11 @@ class Plugin():
 
             if out:
                 Domoticz.Log("Succesfully installed:" + str(out).strip)
+                result = True
+                if self.submodule:
+                    result = submodule_init(self)
                 Domoticz.Log("---Restarting Domoticz MAY BE REQUIRED to activate new plugins---")
-                return True
+                return result
 
             if error:
                 Domoticz.Debug("Git Error:" + str(error))
@@ -104,13 +109,46 @@ class Plugin():
         
         return False
 
+    def submodule_init(self):
+        cmd = "LANG=en_US /usr/bin/git submodule update --init --recursive"
+        try:
+            pr = subprocess.Popen(cmd, cwd = self.plugin_folder, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+            (out, error) = pr.communicate()
+
+            if out:
+                Domoticz.Debug("Git Response:" + str(out))
+                if (str(out).find("Already up-to-date") != -1) or (str(out).find("Already up to date") != -1):
+                   Domoticz.Debug('Plugin "' + self.description + '" already Up-To-Date')
+                   return True
+                elif (str(out).find("Updating") != -1) and (str(str(out).find("error")) == "-1"):
+                   Domoticz.Log("Succesfully pulled gitHub update:" + str(out)[str(out).find("Updating")+8:26] + " for plugin " + self.description)
+                   Domoticz.Log("---Restarting Domoticz MAY BE REQUIRED to activate new plugins---")
+                   return True
+                else:
+                   Domoticz.Error("Something went wrong with update of " + self.description)
+
+            if error:
+                Domoticz.Debug("Git Error:" + str(error.strip()))
+                if str(error).find("Not a git repository") != -1:
+                   Domoticz.Error("Plugin: " + self.description + " is not installed from gitHub. Cannot be updated with PP-Manager!!.")
+
+        except OSError as e:
+            Domoticz.Error("Git ErrorNo:" + str(e.errno))
+            Domoticz.Error("Git StrError:" + str(e.strerror))
+
+        return False
+    
+        
     def update(self):
         Domoticz.Log("Updating Plugin:" + self.description)
 
         if (not self.is_update_available()):
             return True
 
-        cmd = "LANG=en_US /usr/bin/git pull --force"
+        if self.submodule:
+            cmd = "LANG=en_US /usr/bin/git pull --recurse-submodules --force"
+        else:
+            cmd = "LANG=en_US /usr/bin/git pull --force"
         Domoticz.Debug('Calling: "' + cmd + '" on folder ' + self.plugin_folder)
 
         try:
